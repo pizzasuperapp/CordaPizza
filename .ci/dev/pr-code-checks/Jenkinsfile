@@ -1,0 +1,47 @@
+@Library('corda-shared-build-pipeline-steps')
+import static com.r3.build.BuildControl.killAllExistingBuildsForJob
+
+killAllExistingBuildsForJob(env.JOB_NAME, env.BUILD_NUMBER.toInteger())
+
+pipeline {
+    agent { label 'standard' }
+    options {
+        timestamps()
+        timeout(time: 3, unit: 'HOURS')
+        buildDiscarder(logRotator(daysToKeepStr: '14', artifactDaysToKeepStr: '14'))
+    }
+
+    stages {
+        stage('Detekt check') {
+            steps {
+                authenticateGradleWrapper()
+                sh "./gradlew --no-daemon clean detekt"
+            }
+        }
+
+        stage('Compilation warnings check') {
+            steps {
+                sh "./gradlew --no-daemon -Pcompilation.warningsAsErrors=true compileAll"
+            }
+        }
+
+        stage('No API change check') {
+            steps {
+                sh "./gradlew --no-daemon generateApi"
+                sh ".ci/check-api-changes.sh"
+            }
+        }
+
+        stage('Deploy Nodes') {
+            steps {
+                sh "./gradlew --no-daemon jar deployNodes"
+            }
+        }
+    }
+
+    post {
+        cleanup {
+            deleteDir() /* clean up our workspace */
+        }
+    }
+}
